@@ -9,8 +9,8 @@ import torch
 import torch.nn.functional as F
 import torch.optim as optim
 
-from pygcn.utils import load_data, accuracy
-from pygcn.models import GCN
+from utils import load_data, load_data_new, accuracy, accuracy_test
+from models import GCN
 
 # Training settings
 parser = argparse.ArgumentParser()
@@ -25,7 +25,7 @@ parser.add_argument('--lr', type=float, default=0.01,
                     help='Initial learning rate.')
 parser.add_argument('--weight_decay', type=float, default=5e-4,
                     help='Weight decay (L2 loss on parameters).')
-parser.add_argument('--hidden', type=int, default=16,
+parser.add_argument('--hidden', type=int, default=32,
                     help='Number of hidden units.')
 parser.add_argument('--dropout', type=float, default=0.5,
                     help='Dropout rate (1 - keep probability).')
@@ -39,7 +39,16 @@ if args.cuda:
     torch.cuda.manual_seed(args.seed)
 
 # Load data
-adj, features, labels, idx_train, idx_val, idx_test = load_data()
+adj, feat_adj, features, labels, idx_train, idx_val, idx_test = load_data_new("cora")
+
+features = torch.spmm(adj, features)
+train = features[idx_train].sum(0) > 0
+
+# print('---------------------')
+# print(train.sum())
+# print('---------------------')
+# print(features.size(1))
+# print('x' + 1)
 
 # Model and optimizer
 model = GCN(nfeat=features.shape[1],
@@ -53,17 +62,17 @@ if args.cuda:
     model.cuda()
     features = features.cuda()
     adj = adj.cuda()
+    feat_adj = feat_adj.cuda()
     labels = labels.cuda()
     idx_train = idx_train.cuda()
     idx_val = idx_val.cuda()
     idx_test = idx_test.cuda()
 
-
 def train(epoch):
     t = time.time()
     model.train()
     optimizer.zero_grad()
-    output = model(features, adj)
+    output = model(features, adj, feat_adj)
     loss_train = F.nll_loss(output[idx_train], labels[idx_train])
     acc_train = accuracy(output[idx_train], labels[idx_train])
     loss_train.backward()
@@ -73,7 +82,7 @@ def train(epoch):
         # Evaluate validation set performance separately,
         # deactivates dropout during validation run.
         model.eval()
-        output = model(features, adj)
+        output = model(features, adj, feat_adj)
 
     loss_val = F.nll_loss(output[idx_val], labels[idx_val])
     acc_val = accuracy(output[idx_val], labels[idx_val])
@@ -87,8 +96,12 @@ def train(epoch):
 
 def test():
     model.eval()
-    output = model(features, adj)
+    # print(features.size())
+    output = model(features, adj, feat_adj)
     loss_test = F.nll_loss(output[idx_test], labels[idx_test])
+    # print(output)
+    # print(idx_test.size())
+    # print(labels[idx_test])
     acc_test = accuracy(output[idx_test], labels[idx_test])
     print("Test set results:",
           "loss= {:.4f}".format(loss_test.item()),
